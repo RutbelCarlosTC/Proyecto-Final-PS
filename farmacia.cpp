@@ -9,6 +9,9 @@
 #include<time.h>
 #include <thread>
 #include <chrono>
+#include <sstream>
+#include <thread>
+#include <sys/sysinfo.h>
 
 using namespace std;
 
@@ -17,6 +20,7 @@ const char* clearScreen = "CLS"; // Sistema Windows
 #else
 const char* clearScreen = "clear"; // Sistema Unix/Linux
 #endif
+
 
 void pause() {
     cout << "Presiona Enter para continuar...\n";
@@ -152,11 +156,110 @@ node *start_ptr = NULL;
 node *head = NULL;
 node *last = NULL;       
 
+int numCompras=0;
+///
+double obtenerUsoCPU() {
+    std::ifstream statFile("/proc/stat");
+    std::string line;
+    
+    if (!statFile) {
+        return 0.0; // Error al leer el archivo
+    }
+
+    std::getline(statFile, line);
+    statFile.close();
+
+    long user, nice, sys, idle, iowait, irq, softirq, steal, guest, guest_nice;
+    sscanf(line.c_str(), "cpu %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld", &user, &nice, &sys, &idle, &iowait, &irq, &softirq, &steal, &guest, &guest_nice);
+
+    long totalIdle = idle + iowait;
+    long totalNonIdle = user + nice + sys + irq + softirq + steal + guest + guest_nice;
+    long total = totalIdle + totalNonIdle;
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Esperar un momento para calcular la diferencia
+    std::ifstream statFile2("/proc/stat");
+    std::string line2;
+    std::getline(statFile2, line2);
+    statFile2.close();
+
+    long user2, nice2, sys2, idle2, iowait2, irq2, softirq2, steal2, guest2, guest_nice2;
+    sscanf(line2.c_str(), "cpu %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld", &user2, &nice2, &sys2, &idle2, &iowait2, &irq2, &softirq2, &steal2, &guest2, &guest_nice2);
+
+    long totalIdle2 = idle2 + iowait2;
+    long totalNonIdle2 = user2 + nice2 + sys2 + irq2 + softirq2 + steal2 + guest2 + guest_nice2;
+    long total2 = totalIdle2 + totalNonIdle2;
+
+    double cpuPercentage = (1.0 - (static_cast<double>(totalIdle2 - totalIdle) / (total2 - total))) * 100.0;
+    return cpuPercentage;
+};
+
+double obtenerUsoMemoria() {
+    std::ifstream meminfo("/proc/meminfo");
+    std::string line;
+    long long totalMem = 0, freeMem = 0, buffers = 0, cached = 0;
+
+    if (!meminfo) {
+        return 0.0; // Error al leer el archivo
+    }
+
+    while (std::getline(meminfo, line)) {
+        if (line.find("MemTotal:") == 0) {
+            std::istringstream iss(line);
+            iss >> line >> totalMem;
+        } else if (line.find("MemFree:") == 0) {
+            std::istringstream iss(line);
+            iss >> line >> freeMem;
+        } else if (line.find("Buffers:") == 0) {
+            std::istringstream iss(line);
+            iss >> line >> buffers;
+        } else if (line.find("Cached:") == 0) {
+            std::istringstream iss(line);
+            iss >> line >> cached;
+            break; // Detener el ciclo después de leer la memoria caché
+        }
+    }
+
+    meminfo.close();
+
+    long long usedMem = totalMem - (freeMem + buffers + cached);
+
+    double memoryPercentage = (static_cast<double>(usedMem) / totalMem) * 100.0;
+    return memoryPercentage;
+}
+
+// generar archivo csv para estadisticas
+void generarArchivoCSV(double cpuUsage, double memoryUsage, double tiempoTranscurrido) {
+    ofstream archivo("estadisticas.csv", ios::app);
+    if (archivo.is_open()) {
+        archivo << numCompras << ","<< tiempoTranscurrido << "," << cpuUsage << "," << memoryUsage << endl;
+        archivo.close();
+
+        cout << "Estadisticas registradas en 'estadisticas.csv'." << endl;
+    } else {
+        cout << "No se pudo abrir el archivo para guardar las estadisticas." << endl;
+    }
+}
+
+//generar grafica
+void generarGrafica() {
+    ofstream script("grafica_script.gp");
+    if (script.is_open()) {
+        script << "set datafile separator ','\n";
+        script << "set terminal png\n";
+        script << "set output 'grafica.png'\n";
+        script << "plot 'estadisticas.csv' using 1:3 title 'Uso de CPU' with lines, '' using 1:4 title 'Uso de Memoria' with lines , '' using 1:2 title 'Uso de tiempo' with lines\n";
+        script.close();
+    } else {
+        cout << "No se pudo abrir el archivo de script de Gnuplot." << endl;
+    }
+};
+
 int main(){
 
 	//system("mode 160");
 	//a://goto
 	system("color f4");
+	double cpuUsageCompra, memoryUsageCompra, tiempoTranscurridoCompra;
     summary medi;
 	medi.loadingbar();
 	int choice;
@@ -187,13 +290,14 @@ int main(){
 		}
 		else{
 			cout<<"\n\t\tSe ha identificado correctamente!"<<endl;
-			pause();			
+			pause();	
+			system(clearScreen);		
 		}
 	}
 
-	medi.loadingbar();
+	//medi.loadingbar();
 	medi.pwelcom();
-	medi.loadingbar();
+	//medi.loadingbar();
 	int menu;
 	do{
 		system(clearScreen);
@@ -209,7 +313,7 @@ int main(){
 		cout<<"\t\t__________________________________________________\n";
 		cout<<"\t\t||\t4. Factura y realice el pago\t\t||\n";
 		cout<<"\t\t__________________________________________________\n";
-		cout<<"\t\t||\t5. Resumen diario de la venta total \t||\n";
+		cout<<"\t\t||\t5. Resumen diario de Ventas\t\t||\n";
 		cout<<"\t\t__________________________________________________\n";
 		cout<<"\t\t||\t6. Salir\t\t\t\t||\n";
 		cout<<"\t\t__________________________________________________\n";
@@ -217,55 +321,84 @@ int main(){
 		cout<<"Introduce una opcion: ";
 
 		cin>>menu;
+		if (cin.fail()) {
+			cout << "Entrada invalida. Debe ingresar un numero." << endl;
+			cin.clear();
+			cin.ignore(numeric_limits<streamsize>::max(), '\n');
+			continue;
+        }
 
-		switch (menu){
+		try{
+			switch (menu){
 
-			case 1:{
-				system(clearScreen);
-				medi.take_order();
-				medi.loadingbar();	//funcion add
-				break;
-			}	//end case 1
-		
-			case 2:{
-				medi.delete_order();	//funcion delete
-				pause();
-				break;
-			}	//end case 2
+				case 1:{
+					std::chrono::high_resolution_clock::time_point startTime;
+					startTime = std::chrono::high_resolution_clock::now();
+					
+					system(clearScreen);
+					medi.take_order();
+
+					auto endTime = std::chrono::high_resolution_clock::now();
+       				std::chrono::duration<double> duration = endTime - startTime;
+					tiempoTranscurridoCompra = duration.count();
+
+					cpuUsageCompra = obtenerUsoCPU(); // DebesCompramentar esta función para medir el uso de CPU
+                    memoryUsageCompra = obtenerUsoMemoria(); // Debes implementar esta función para medir el uso de memoria
 				
-			case 3:{
-				medi.modify();	//funcion modify
-				pause();
-				break;
-			}	//end case 3
+                    generarArchivoCSV(cpuUsageCompra, memoryUsageCompra, tiempoTranscurridoCompra); 
+					numCompras = 0;
+					//medi.loadingbar();	//funcion add
+					break;
+				}	//end case 1
+			
+				case 2:{
+					medi.delete_order();	//funcion delete
+					pause();
+					break;
+				}	//end case 2
+					
+				case 3:{
+					medi.modify();	//funcion modify
+					pause();
+					break;
+				}	//end case 3
 
-			case 4:{
-				medi.order_list();	//funcion order
-				pause();
-				break;
-			}	//end case 4
-			case 5:{
-				medi.daily_summary();	//funcion daily_summary
-				pause();
-				break;
-			}	//end case 5
-			case 6:{
-				medi.exit();	//funcion exit
-				//goto a;
-				return 0;
-				break;
-			}	//end case 6
+				case 4:{
+					medi.order_list();	//funcion order
+					pause();
+					break;
+				}	//end case 4
+				case 5:{
 
-			default:{
-				cout<<"Ha introducido datos no válidos, vuelva a introducirlos\n"<<endl;
-				break;
-			}//end defeault
-		}//end Switch
+					medi.daily_summary();	//funcion daily_summary
+					pause();
+					break;
+				}	//end case 5
+				case 6:{
+					medi.exit();	//funcion exit
+					//goto a;
+					break;
+				}	//end case 6
 
+				default:{
+					cout<<"Ha introducido datos no válidos, vuelva a introducirlos\n"<<endl;
+					break;
+				}//end defeault
+			}//end Switch
+
+		}catch (const exception& e) {
+            cout << "Error: " << e.what() << ". Saliendo..." << endl;
+            //break;
+
+        }catch (...) {
+            cout << "Error desconocido. Saliendo..." << endl;
+            //break;
+        }
+		
 	}while(menu!=6);//end do
 	
-	cout<<"thank you"<<endl;
-	pause();
+	generarGrafica();
+    system("gnuplot grafica_script.gp");
 	return 0;
 }
 
@@ -311,6 +444,8 @@ void  order:: take_order(){
 		pause();
 	}
 	else{
+			
+		numCompras = temp->x;
 
 		for (i=0; i<temp->x; i++){
 			
@@ -395,8 +530,17 @@ void  order :: order_list(){
 		+temp->amount[8]+temp->amount[9];
 		cout<<"La factura total es : "<<temp->total;
 		cout<<"\n";
-		cout << "Escriba la cantidad exacta que debe pagar: ";
-        cin >> num;
+		do{
+			cout << "Escriba la cantidad exacta que debe pagar: ";
+    		cin >> num;
+			if(num<temp->total){
+				cout << "La cantidad es menor al monto a pagar!: \n";
+			}
+		}while(num<temp->total);
+
+		if(num>temp->total){
+			cout << "Monto devuelto: $"<<num-temp->total<<endl;
+		}
 
 		cout <<"\n\n";
 		cout <<"\n_________________________________________________________________________________\n";
@@ -547,13 +691,13 @@ void summary::daily_summary() //Función para mostrar el resumen diario
 			cout<<"____________________________________________________________________________"<<endl;
 		
 			cout << "==========================================================================" << endl;
-			cout << "| Tipo Medicina |  Nombre del medicamento  |  	Cantidad   | Precio Total |" << endl;
-			cout << "=======++==================++================++===============++==========" << endl;
+			cout << "| Tipo  |  Nombre del medicamento          |  	Cantidad   | Precio Total |" << endl;
+			cout << "========+==================================+==============+==============" << endl;
 			
 			for (i=0;i<temp->x;i++){
-				cout << temp->type <<"  \t\t";
-				cout<<temp->medicineName[temp->menu2[i]-1]<<"\t\t";
-				cout<<temp->quantity[i] <<"\t\t";
+				cout << temp->type <<"\t";
+				cout<<temp->medicineName[temp->menu2[i]-1]<<"\t\t\t\t";
+				cout<<temp->quantity[i] <<"\t";
 				cout<<" $"<<temp->amount[i]<<endl;
 				cout<<"_____________________________________________________________________________"<<endl;
 			}
